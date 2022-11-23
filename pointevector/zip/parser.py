@@ -1,5 +1,4 @@
 import enum
-import logging
 import io
 import zlib
 
@@ -35,15 +34,12 @@ class StreamParser:
         self.end_of_files = False
 
     def feed(self, data: bytes):
-        logger = logging.getLogger()
-
         # Update buffer
         self.buffer.write(data)
 
         # Process buffer
         while True:
             buf = self.buffer.getbuffer()
-            logger.info("%s %s", self.zip_state, buf[:4].tobytes())
             if self.zip_state == StreamParser._State.LOCAL_HEADER:
                 # Attempt to parse local header
                 try:
@@ -73,7 +69,8 @@ class StreamParser:
                 self.buffer = io.BytesIO(self.decompressor.unused_data)
                 self.buffer.seek(self.buffer.getbuffer().nbytes)
                 if self.decompressor.eof:
-                    yield self.header, self.content
+                    yield self.header, self.content.getvalue()
+                    self.content = io.BytesIO()
                     if self.header.bit_flags.expect_descriptor:
                         self.zip_state = StreamParser._State.DATA_DESCRIPTOR
                     else:
@@ -102,7 +99,6 @@ class StreamParser:
                 except exceptions.IncompleteParse:
                     break
                 except exceptions.BadMagic:
-                    logger.info("HIT")
                     if buf[:4] == _zip64_eocd.MAGIC:
                         self.zip_state = StreamParser._State.ZIP64_EOCD
                         continue
@@ -122,7 +118,6 @@ class StreamParser:
                     eocd = _zip64_eocd.Zip64EOCD.from_memoryview(buf)
                 except exceptions.IncompleteParse:
                     break
-                logger.info("ZIP64 %s", eocd)
 
                 # Prepare for next state
                 self.buffer = io.BytesIO(buf[len(eocd) :])
